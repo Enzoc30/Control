@@ -16,14 +16,11 @@
     <style>
         :root {
             --primary: #2563eb;
-            /* Azul vibrante */
             --primary-hover: #1d4ed8;
             --bg-color: #f3f4f6;
-            /* Gris muy suave de fondo */
             --text-dark: #111827;
             --text-gray: #6b7280;
             --card-radius: 24px;
-            /* Bordes muy redondeados estilo Finova */
         }
 
         * {
@@ -42,7 +39,6 @@
             color: var(--text-dark);
         }
 
-        /* Tarjeta Central */
         .dashboard-card {
             background: white;
             width: 100%;
@@ -54,7 +50,6 @@
             animation: floatUp 0.6s ease-out;
         }
 
-        /* Cabecera */
         .icon-header {
             background: #eff6ff;
             color: var(--primary);
@@ -82,7 +77,6 @@
             line-height: 1.5;
         }
 
-        /* Zona de carga (Drag & Drop visual) */
         .upload-zone {
             border: 2px dashed #e5e7eb;
             border-radius: 16px;
@@ -126,7 +120,6 @@
             font-weight: 600 !important;
         }
 
-        /* Botón */
         .btn-process {
             background-color: var(--primary);
             color: white;
@@ -158,7 +151,6 @@
             box-shadow: none;
         }
 
-        /* Estados */
         .status-msg {
             margin-top: 20px;
             font-size: 13px;
@@ -204,7 +196,7 @@
         </div>
 
         <h1>Generar ZIP de Compras</h1>
-        <p class="subtitle">Sube tu Excel de compras para generar automáticamente el resumen y los TXT validados.</p>
+        <p class="subtitle">Genera Resumen con cabecera (A1-B5) + TXTs Validados.</p>
 
         <div class="upload-zone" id="dropZone">
             <div class="upload-content">
@@ -222,7 +214,6 @@
     </div>
 
     <script>
-        // Efecto visual al seleccionar archivo
         function actualizarNombreArchivo() {
             const input = document.getElementById('inputFile');
             const text = document.getElementById('uploadText');
@@ -231,12 +222,11 @@
             if (input.files && input.files[0]) {
                 text.innerText = input.files[0].name;
                 text.classList.add('file-selected');
-                icon.className = "ph ph-file-xls"; // Cambia icono a Excel
+                icon.className = "ph ph-file-xls";
                 icon.style.color = "#2563eb";
             }
         }
 
-        // --- LÓGICA DE PROCESAMIENTO (TU CÓDIGO) ---
         async function procesarCompras() {
             const fileInput = document.getElementById('inputFile');
             const statusDiv = document.getElementById('statusArea');
@@ -248,7 +238,6 @@
             }
 
             try {
-                // UI Loading
                 btn.disabled = true;
                 btn.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> Procesando...';
                 mostrarEstado("Leyendo y analizando datos...", "loading");
@@ -257,15 +246,23 @@
                 reader.readAsArrayBuffer(fileInput.files[0]);
 
                 reader.onload = async function (e) {
-                    // 1. Cargar Excel
                     const workbook = new ExcelJS.Workbook();
                     await workbook.xlsx.load(e.target.result);
                     const worksheet = workbook.worksheets[0];
 
+                    // --- 1. CAPTURAR CABECERA (A1-A5 y B1-B5) ---
+                    let infoCabecera = [];
+                    for (let i = 1; i <= 5; i++) {
+                        // Capturamos el valor exacto de las celdas
+                        const valA = worksheet.getCell(`A${i}`).value || "";
+                        const valB = worksheet.getCell(`B${i}`).value || "";
+                        infoCabecera.push([valA, valB]);
+                    }
+
+                    // --- 2. FILTRAR DATOS ---
                     let dfLimpio = [];
                     const regexFecha = /\d{2}\/\d{2}\/\d{4}/;
 
-                    // 2. Filtrar
                     worksheet.eachRow({ includeEmpty: false }, (row) => {
                         const val = row.getCell(2).value; // Columna B
                         let strVal = "";
@@ -275,28 +272,49 @@
                         if (regexFecha.test(strVal)) dfLimpio.push(row.values);
                     });
 
-                    // 3. Mapear Datos
+                    // --- 3. MAPEAR DATOS ---
                     const datos = dfLimpio.map(r => ({
                         fecha: r[2], tipo: r[4], serie: r[5], num: r[7],
                         ptipo: r[8], pruc: r[9], pnom: r[10], total: r[22]
                     }));
 
-                    // 4. Crear Excel Resumen
+                    // --- 4. CREAR EXCEL RESUMEN ---
                     const wbRes = new ExcelJS.Workbook();
                     const wsRes = wbRes.addWorksheet("Resumen");
-                    wsRes.columns = [
-                        { header: 'FECHA', key: 'f', width: 12 },
-                        { header: 'RUC', key: 'r', width: 15 },
-                        { header: 'RAZON SOCIAL', key: 'rs', width: 35 },
-                        { header: 'IMPORTE', key: 'i', width: 12 }
-                    ];
-                    // Estilo simple header
-                    wsRes.getRow(1).font = { bold: true };
 
-                    datos.forEach(d => wsRes.addRow({ f: d.fecha, r: d.pruc, rs: d.pnom, i: d.total }));
+                    // A) Escribir las 5 filas de info primero
+                    infoCabecera.forEach(filaInfo => {
+                        wsRes.addRow(filaInfo);
+                    });
+
+                    // B) Espacio opcional (fila 6 vacía) o directo headers
+                    // Vamos a poner los headers en la fila 6 para que quede pegado, o fila 7 si quieres espacio.
+                    // Lo pondré en la siguiente fila disponible (Fila 6)
+
+                    const headerRow = wsRes.addRow(['FECHA', 'RUC', 'RAZON SOCIAL', 'IMPORTE', 'OBSERVACIONES']);
+                    headerRow.font = { bold: true }; // Negrita para los encabezados
+
+                    // Configurar anchos de columna manualmente
+                    wsRes.getColumn(1).width = 12; // Fecha
+                    wsRes.getColumn(2).width = 15; // Ruc
+                    wsRes.getColumn(3).width = 35; // Razon Social
+                    wsRes.getColumn(4).width = 12; // Importe
+                    wsRes.getColumn(5).width = 25; // Observaciones (Nueva)
+
+                    // C) Escribir los datos
+                    datos.forEach(d => {
+                        wsRes.addRow([
+                            d.fecha,
+                            d.pruc,
+                            d.pnom,
+                            d.total,
+                            "" // Columna Observaciones vacía
+                        ]);
+                    });
+
                     const buffRes = await wbRes.xlsx.writeBuffer();
 
-                    // 5. Generar TXTs
+                    // --- 5. GENERAR TXTs (Validación original) ---
                     let txtLines = [];
                     datos.forEach(d => {
                         try {
@@ -308,28 +326,25 @@
 
                             let v = parseFloat(d.total || 0);
                             if (t.trim() === "07") v = Math.abs(v);
-                            let imp = (Math.round(v * 100) / 100).toString(); // simple round
-                            if (v % 1 === 0) imp = parseInt(v).toString(); // quitar decimales si es entero
+                            let imp = (Math.round(v * 100) / 100).toString();
+                            if (v % 1 === 0) imp = parseInt(v).toString();
 
                             txtLines.push(`${r}|${t}|${s}|${n}|${f}|${imp}`);
                         } catch (e) { }
                     });
 
-                    // 6. Crear ZIP
+                    // --- 6. ZIP ---
                     const zip = new JSZip();
                     zip.file("Resumen_Compras.xlsx", buffRes);
 
-                    // Lotes de 100
                     for (let i = 0; i < txtLines.length; i += 100) {
                         zip.file(`Lote_Validacion_${Math.floor(i / 100) + 1}.txt`, txtLines.slice(i, i + 100).join("\n"));
                     }
 
                     const zipBlob = await zip.generateAsync({ type: "blob" });
-
-                    // 7. Descargar
                     saveAs(zipBlob, `AutoConta_Pack_${Date.now()}.zip`);
 
-                    mostrarEstado("¡Éxito! Tu archivo ZIP se ha descargado.", "success");
+                    mostrarEstado("¡Éxito! ZIP descargado correctamente.", "success");
                     btn.disabled = false;
                     btn.innerText = "Procesar Archivo";
                 };
