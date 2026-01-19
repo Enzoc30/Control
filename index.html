@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AutoContaLabs - Procesador de Ventas</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f4f9;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .card {
+            background: white;
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 400px;
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .logo {
+            color: #2563eb;
+            font-weight: bold;
+            font-size: 1.2rem;
+            margin-bottom: 20px;
+            display: block;
+        }
+
+        input[type="file"] {
+            margin-bottom: 1rem;
+            width: 100%;
+        }
+
+        button {
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: bold;
+            width: 100%;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background-color: #1d4ed8;
+        }
+
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+
+        #status {
+            margin-top: 15px;
+            font-size: 0.9rem;
+            color: #666;
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="card">
+        <span class="logo">AutoContaLabs 🚀</span>
+        <h1>Procesador de Calidad</h1>
+        <p style="font-size: 0.85rem; color: #666; margin-bottom: 20px;">Sube tu reporte y la plantilla se descargará
+            automáticamente.</p>
+
+        <input type="file" id="inputFile" accept=".xlsx" />
+        <button id="btnProcess" onclick="procesarArchivo()">Procesar y Descargar</button>
+        <div id="status"></div>
+    </div>
+
+    <script>
+        // CONFIGURACIÓN: Nombre exacto de tu plantilla en el repo de GitHub
+        const URL_PLANTILLA = './PantillaCDC.xlsx';
+
+        async function procesarArchivo() {
+            const fileInput = document.getElementById('inputFile');
+            const statusDiv = document.getElementById('status');
+            const btn = document.getElementById('btnProcess');
+
+            if (!fileInput.files[0]) {
+                alert("Por favor selecciona un archivo primero.");
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                statusDiv.innerText = "Leyendo archivo...";
+
+                // 1. Leer el archivo subido (DATA)
+                const reader = new FileReader();
+                reader.readAsArrayBuffer(fileInput.files[0]);
+
+                reader.onload = async function (e) {
+                    const buffer = e.target.result;
+                    const workbook = new ExcelJS.Workbook();
+                    await workbook.xlsx.load(buffer);
+
+                    // Asumimos que los datos están en la primera hoja
+                    const worksheet = workbook.worksheets[0];
+
+                    // Convertir hoja a array de arrays (similar a pandas values)
+                    // Ignoramos las 3 primeras filas (header=None, iloc[3:])
+                    let dataRows = [];
+                    worksheet.eachRow({ includeEmpty: true }, function (row, rowNumber) {
+                        if (rowNumber > 3) {
+                            // ExcelJS usa base 1 para celdas, Pandas base 0. Restamos lógica mentalmente o usamos values.
+                            // row.values devuelve un array donde el índice 0 es null (rareza de la librería), el 1 es la col A.
+                            dataRows.push(row.values);
+                        }
+                    });
+
+                    statusDiv.innerText = "Filtrando y transformando datos...";
+
+                    // 2. Lógica de Filtrado (Equivalente a Pandas)
+                    // Índices: En ExcelJS row.values, Columna N es índice 14, P es 16 (porque index 0 es vacío)
+                    // Pandas Index 13 (N) -> ExcelJS Index 14
+                    // Pandas Index 15 (P) -> ExcelJS Index 16
+                    const dfDatos = dataRows.filter(row => {
+                        const val13 = parseFloat(row[14]) || 0;
+                        const val15 = parseFloat(row[16]) || 0;
+                        return val13 > 0 && val15 > 0;
+                    });
+
+                    // 3. Generar Bloques (Función aplicar_mapeo traducida)
+                    let filasFinales = [];
+
+                    // Función auxiliar para formatear fecha Excel serial o string a DD/MM/YYYY
+                    const formatFecha = (val) => {
+                        if (!val) return "";
+                        if (val instanceof Date) return val.toLocaleDateString('es-PE');
+                        // Si es string intenta parsear, si no devuelve original
+                        return val.toString();
+                    };
+
+                    const procesarBloque = (rows, colImporteIndex, valorDH, cuentaContable) => {
+                        rows.forEach(orig => {
+                            // Creamos una fila vacía de 42 espacios (para cubrir hasta col 41)
+                            let newRow = new Array(42).fill(null);
+
+                            // Mapeos (Ajustando índices: Pandas 1 -> ExcelJS 2)
+                            newRow[2] = orig[2];  // B -> Subdiario
+                            newRow[3] = orig[3];  // C -> Comprobante
+                            newRow[4] = formatFecha(orig[5]); // E -> Fecha (Pandas col 4 es ExcelJS 5)
+                            newRow[5] = orig[4];  // D -> Moneda
+                            newRow[6] = orig[12]; // L -> Razon Social
+                            newRow[8] = orig[22]; // V -> Tipo Cambio
+                            newRow[9] = "S";      // Flag
+
+                            // Serie - Nro
+                            const s = orig[8] || "";
+                            const n = orig[9] || "";
+                            newRow[19] = s + "-" + n;
+
+                            newRow[20] = formatFecha(orig[5]); // Fecha Doc
+                            newRow[21] = formatFecha(orig[5]); // Fecha Venc
+                            newRow[18] = orig[7]; // G -> Tipo Doc
+
+                            // Original AB (Pandas 27 -> ExcelJS 28) -> Plantilla K (11)
+                            newRow[11] = orig[28];
+
+                            // Lógica "D"
+                            if (valorDH === "D") {
+                                newRow[12] = orig[11]; // Original K -> Plantilla L
+                            }
+
+                            newRow[14] = valorDH;
+                            // Importe
+                            newRow[15] = parseFloat(orig[colImporteIndex]) || 0;
+
+                            // Cuenta Contable (Col K en plantilla -> index 11)
+                            // Ojo: En tu python ponías cuenta en col 10 (K).
+                            newRow[11] = cuentaContable;
+
+                            filasFinales.push(newRow);
+                        });
+                    };
+
+                    // Ejecutar los 4 bloques
+                    // Índices Pandas -> ExcelJS (+1)
+                    procesarBloque(dfDatos, 21, "D", 121201); // Col 20 -> 21
+                    procesarBloque(dfDatos, 14, "H", 701211); // Col 13 -> 14
+                    procesarBloque(dfDatos, 16, "H", 701212); // Col 15 -> 16
+                    procesarBloque(dfDatos, 18, "H", 401111); // Col 17 -> 18
+
+                    // 4. Limpiar ceros y Ordenar
+                    filasFinales = filasFinales.filter(r => r[15] !== 0 && r[15] !== null);
+
+                    // Ordenar: Col 3 (Comprobante) y luego Col 14 (D/H)
+                    filasFinales.sort((a, b) => {
+                        const compA = parseFloat(a[3]) || 0;
+                        const compB = parseFloat(b[3]) || 0;
+                        if (compA !== compB) return compA - compB;
+                        if (a[14] < b[14]) return -1;
+                        if (a[14] > b[14]) return 1;
+                        return 0;
+                    });
+
+                    statusDiv.innerText = "Cargando plantilla...";
+
+                    // 5. Cargar Plantilla Base y Escribir
+                    // Fetch al archivo plantilla.xlsx que debe estar en la misma carpeta del repo
+                    const response = await fetch(URL_PLANTILLA);
+                    if (!response.ok) throw new Error("No se encontró el archivo plantilla.xlsx");
+                    const arrayBufferPlantilla = await response.arrayBuffer();
+
+                    const wbSalida = new ExcelJS.Workbook();
+                    await wbSalida.xlsx.load(arrayBufferPlantilla);
+                    const wsSalida = wbSalida.worksheets[0];
+
+                    // Borrar datos viejos (desde fila 4)
+                    // ExcelJS no tiene un "delete_rows" tan directo que limpie estilos a veces, 
+                    // pero podemos sobrescribir. Mejor estrategia: borrar contenido manualmente si es necesario
+                    // o simplemente empezar a escribir desde la 4.
+
+                    // Escribir datos
+                    filasFinales.forEach((rowData, index) => {
+                        const currentRow = wsSalida.getRow(4 + index);
+                        // Iterar columnas (recordar mapeo de indices del array al Excel)
+                        // rowData index 1 (col A) -> cell 1
+                        for (let c = 1; c < rowData.length; c++) {
+                            if (rowData[c] !== undefined && rowData[c] !== null) {
+                                currentRow.getCell(c).value = rowData[c];
+                            }
+                        }
+                        currentRow.commit();
+                    });
+
+                    statusDiv.innerText = "Generando archivo final...";
+
+                    // 6. Descargar
+                    const bufferSalida = await wbSalida.xlsx.writeBuffer();
+                    const blob = new Blob([bufferSalida], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
+                    const url = window.URL.createObjectURL(blob);
+
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `Resultado_Final_Ventas_${new Date().getTime()}.xlsx`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+
+                    statusDiv.innerText = "¡Listo! Descarga iniciada.";
+                    btn.disabled = false;
+
+                };
+            } catch (error) {
+                console.error(error);
+                statusDiv.innerText = "Error: " + error.message;
+                statusDiv.style.color = "red";
+                btn.disabled = false;
+            }
+        }
+    </script>
+</body>
+
+</html>
