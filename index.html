@@ -4,8 +4,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoContaLabs - Procesador de Ventas</title>
+    <title>AutoContaLabs - Procesador de Compras ZIP</title>
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
     <style>
         body {
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -13,7 +17,7 @@
             display: flex;
             justify-content: center;
             align-items: center;
-            height: 100vh;
+            min-height: 100vh;
             margin: 0;
         }
 
@@ -22,21 +26,27 @@
             padding: 2rem;
             border-radius: 12px;
             box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            width: 400px;
+            width: 450px;
             text-align: center;
         }
 
         h1 {
             color: #333;
             font-size: 1.5rem;
-            margin-bottom: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .subtitle {
+            font-size: 0.9rem;
+            color: #666;
+            margin-bottom: 1.5rem;
         }
 
         .logo {
-            color: #2563eb;
+            color: #16a34a;
             font-weight: bold;
             font-size: 1.2rem;
-            margin-bottom: 20px;
+            margin-bottom: 10px;
             display: block;
         }
 
@@ -46,19 +56,20 @@
         }
 
         button {
-            background-color: #2563eb;
+            background-color: #16a34a;
             color: white;
             border: none;
-            padding: 10px 20px;
+            padding: 12px 20px;
             border-radius: 6px;
             cursor: pointer;
             font-weight: bold;
             width: 100%;
             transition: background 0.2s;
+            font-size: 1rem;
         }
 
         button:hover {
-            background-color: #1d4ed8;
+            background-color: #15803d;
         }
 
         button:disabled {
@@ -67,12 +78,14 @@
         }
 
         #status {
-            margin-top: 15px;
+            margin-top: 20px;
             font-size: 0.9rem;
-            color: #666;
-        }
-
-        .hidden {
+            color: #444;
+            white-space: pre-line;
+            text-align: left;
+            background: #f9fafb;
+            padding: 10px;
+            border-radius: 6px;
             display: none;
         }
     </style>
@@ -81,35 +94,32 @@
 <body>
 
     <div class="card">
-        <span class="logo">AutoContaLabs 🚀</span>
-        <h1>Procesador de Calidad</h1>
-        <p style="font-size: 0.85rem; color: #666; margin-bottom: 20px;">Sube tu reporte y la plantilla se descargará
-            automáticamente.</p>
+        <span class="logo">AutoContaLabs 🛒</span>
+        <h1>Procesador de Compras</h1>
+        <p class="subtitle">Genera Resumen Excel + TXTs validados (ZIP)</p>
 
-        <input type="file" id="inputFile" accept=".xlsx" />
-        <button id="btnProcess" onclick="procesarArchivo()">Procesar y Descargar</button>
+        <input type="file" id="inputFile" accept=".xlsx, .xls" />
+        <button id="btnProcess" onclick="procesarCompras()">Generar ZIP</button>
         <div id="status"></div>
     </div>
 
     <script>
-        // CONFIGURACIÓN: Nombre exacto de tu plantilla en el repo de GitHub
-        const URL_PLANTILLA = './PantillaCDC.xlsx';
-
-        async function procesarArchivo() {
+        async function procesarCompras() {
             const fileInput = document.getElementById('inputFile');
             const statusDiv = document.getElementById('status');
             const btn = document.getElementById('btnProcess');
 
             if (!fileInput.files[0]) {
-                alert("Por favor selecciona un archivo primero.");
+                alert("Por favor selecciona un archivo Excel.");
                 return;
             }
 
             try {
                 btn.disabled = true;
-                statusDiv.innerText = "Leyendo archivo...";
+                statusDiv.style.display = 'block';
+                statusDiv.innerText = "⏳ Iniciando lectura del archivo...";
 
-                // 1. Leer el archivo subido (DATA)
+                // 1. LEER EL ARCHIVO
                 const reader = new FileReader();
                 reader.readAsArrayBuffer(fileInput.files[0]);
 
@@ -117,159 +127,167 @@
                     const buffer = e.target.result;
                     const workbook = new ExcelJS.Workbook();
                     await workbook.xlsx.load(buffer);
-
-                    // Asumimos que los datos están en la primera hoja
                     const worksheet = workbook.worksheets[0];
 
-                    // Convertir hoja a array de arrays (similar a pandas values)
-                    // Ignoramos las 3 primeras filas (header=None, iloc[3:])
-                    let dataRows = [];
-                    worksheet.eachRow({ includeEmpty: true }, function (row, rowNumber) {
-                        if (rowNumber > 3) {
-                            // ExcelJS usa base 1 para celdas, Pandas base 0. Restamos lógica mentalmente o usamos values.
-                            // row.values devuelve un array donde el índice 0 es null (rareza de la librería), el 1 es la col A.
-                            dataRows.push(row.values);
+                    statusDiv.innerText += "\n🔍 Filtrando datos y aplicando Regex...";
+
+                    // 2. FILTRAR Y LIMPIAR (Lógica Python traducida a JS)
+                    let dfLimpio = [];
+                    const regexFecha = /\d{2}\/\d{2}\/\d{4}/;
+
+                    worksheet.eachRow({ includeEmpty: false }, function (row, rowNumber) {
+                        // ExcelJS row.values[1] es null. La columna A es index 1, B es index 2.
+                        // En tu Python usabas row[1] (Columna B). En ExcelJS suele ser index 2.
+                        // Ajusta este índice si tu Excel varía. Asumiremos Columna B (index 2).
+                        const celdaFecha = row.getCell(2).value;
+
+                        // Convertir a string para evaluar regex
+                        let valorFechaStr = "";
+                        if (celdaFecha instanceof Date) {
+                            valorFechaStr = celdaFecha.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                        } else if (celdaFecha) {
+                            valorFechaStr = celdaFecha.toString();
+                        }
+
+                        if (regexFecha.test(valorFechaStr)) {
+                            // Guardamos la fila completa (solo valores)
+                            // row.values devuelve un array con un null al principio, lo quitamos con slice(1)
+                            dfLimpio.push(row.values);
                         }
                     });
 
-                    statusDiv.innerText = "Filtrando y transformando datos...";
+                    // 3. MAPEO DE COLUMNAS (Basado en tu código Python)
+                    // Python indices (0-based) -> JS Array indices (1-based because row.values keeps index 0 as null/undefined usually)
+                    // Mapeo aproximado basado en tu lista "columnas_nombres"
+                    // [1] FECHA, [3] TIPO_CP, [4] SERIE, [6] NUMERO, [7] PROV_TIPO, [8] PROV_NUM, [9] PROV_NOM, [21] TOTAL
 
-                    // 2. Lógica de Filtrado (Equivalente a Pandas)
-                    // Índices: En ExcelJS row.values, Columna N es índice 14, P es 16 (porque index 0 es vacío)
-                    // Pandas Index 13 (N) -> ExcelJS Index 14
-                    // Pandas Index 15 (P) -> ExcelJS Index 16
-                    const dfDatos = dataRows.filter(row => {
-                        const val13 = parseFloat(row[14]) || 0;
-                        const val15 = parseFloat(row[16]) || 0;
-                        return val13 > 0 && val15 > 0;
+                    const datosProcesados = dfLimpio.map(row => {
+                        return {
+                            fecha: row[2],       // Python 1 -> JS 2 (Col B)
+                            tipo_cp: row[4],     // Python 3 -> JS 4 (Col D)
+                            serie: row[5],       // Python 4 -> JS 5 (Col E)
+                            numero: row[7],      // Python 6 -> JS 7 (Col G)
+                            prov_tipo: row[8],   // Python 7 -> JS 8 (Col H)
+                            prov_ruc: row[9],    // Python 8 -> JS 9 (Col I)
+                            prov_nom: row[10],   // Python 9 -> JS 10 (Col J)
+                            total: row[22]       // Python 21 -> JS 22 (Col V)
+                        };
                     });
 
-                    // 3. Generar Bloques (Función aplicar_mapeo traducida)
-                    let filasFinales = [];
+                    statusDiv.innerText += "\n📊 Generando Excel de Resumen...";
 
-                    // Función auxiliar para formatear fecha Excel serial o string a DD/MM/YYYY
-                    const formatFecha = (val) => {
-                        if (!val) return "";
-                        if (val instanceof Date) return val.toLocaleDateString('es-PE');
-                        // Si es string intenta parsear, si no devuelve original
-                        return val.toString();
-                    };
+                    // 4. GENERAR EXCEL RESUMEN
+                    const wbResumen = new ExcelJS.Workbook();
+                    const wsResumen = wbResumen.addWorksheet("Resumen");
 
-                    const procesarBloque = (rows, colImporteIndex, valorDH, cuentaContable) => {
-                        rows.forEach(orig => {
-                            // Creamos una fila vacía de 42 espacios (para cubrir hasta col 41)
-                            let newRow = new Array(42).fill(null);
+                    // Encabezados
+                    wsResumen.columns = [
+                        { header: 'CORRELATIVO', key: 'corr', width: 10 },
+                        { header: 'FECHA_EMISION', key: 'fecha', width: 15 },
+                        { header: 'TIPO', key: 'tipo', width: 10 },
+                        { header: 'SERIE', key: 'serie', width: 10 },
+                        { header: 'NUMERO', key: 'num', width: 15 },
+                        { header: 'TIPO DOC', key: 'tdoc', width: 10 },
+                        { header: 'RUC', key: 'ruc', width: 15 },
+                        { header: 'RAZON SOCIAL', key: 'rs', width: 30 },
+                        { header: 'IMPORTE TOTAL', key: 'imp', width: 15 }
+                    ];
 
-                            // Mapeos (Ajustando índices: Pandas 1 -> ExcelJS 2)
-                            newRow[2] = orig[2];  // B -> Subdiario
-                            newRow[3] = orig[3];  // C -> Comprobante
-                            newRow[4] = formatFecha(orig[5]); // E -> Fecha (Pandas col 4 es ExcelJS 5)
-                            newRow[5] = orig[4];  // D -> Moneda
-                            newRow[6] = orig[12]; // L -> Razon Social
-                            newRow[8] = orig[22]; // V -> Tipo Cambio
-                            newRow[9] = "S";      // Flag
-
-                            // Serie - Nro
-                            const s = orig[8] || "";
-                            const n = orig[9] || "";
-                            newRow[19] = s + "-" + n;
-
-                            newRow[20] = formatFecha(orig[5]); // Fecha Doc
-                            newRow[21] = formatFecha(orig[5]); // Fecha Venc
-                            newRow[18] = orig[7]; // G -> Tipo Doc
-
-                            // Original AB (Pandas 27 -> ExcelJS 28) -> Plantilla K (11)
-                            newRow[11] = orig[28];
-
-                            // Lógica "D"
-                            if (valorDH === "D") {
-                                newRow[12] = orig[11]; // Original K -> Plantilla L
-                            }
-
-                            newRow[14] = valorDH;
-                            // Importe
-                            newRow[15] = parseFloat(orig[colImporteIndex]) || 0;
-
-                            // Cuenta Contable (Col K en plantilla -> index 11)
-                            // Ojo: En tu python ponías cuenta en col 10 (K).
-                            newRow[11] = cuentaContable;
-
-                            filasFinales.push(newRow);
+                    datosProcesados.forEach((d, index) => {
+                        wsResumen.addRow({
+                            corr: index + 1,
+                            fecha: d.fecha,
+                            tipo: d.tipo_cp,
+                            serie: d.serie,
+                            num: d.numero,
+                            tdoc: d.prov_tipo,
+                            ruc: d.prov_ruc,
+                            rs: d.prov_nom,
+                            imp: d.total
                         });
-                    };
-
-                    // Ejecutar los 4 bloques
-                    // Índices Pandas -> ExcelJS (+1)
-                    procesarBloque(dfDatos, 21, "D", 121201); // Col 20 -> 21
-                    procesarBloque(dfDatos, 14, "H", 701211); // Col 13 -> 14
-                    procesarBloque(dfDatos, 16, "H", 701212); // Col 15 -> 16
-                    procesarBloque(dfDatos, 18, "H", 401111); // Col 17 -> 18
-
-                    // 4. Limpiar ceros y Ordenar
-                    filasFinales = filasFinales.filter(r => r[15] !== 0 && r[15] !== null);
-
-                    // Ordenar: Col 3 (Comprobante) y luego Col 14 (D/H)
-                    filasFinales.sort((a, b) => {
-                        const compA = parseFloat(a[3]) || 0;
-                        const compB = parseFloat(b[3]) || 0;
-                        if (compA !== compB) return compA - compB;
-                        if (a[14] < b[14]) return -1;
-                        if (a[14] > b[14]) return 1;
-                        return 0;
                     });
 
-                    statusDiv.innerText = "Cargando plantilla...";
+                    const bufferResumen = await wbResumen.xlsx.writeBuffer();
 
-                    // 5. Cargar Plantilla Base y Escribir
-                    // Fetch al archivo plantilla.xlsx que debe estar en la misma carpeta del repo
-                    const response = await fetch(URL_PLANTILLA);
-                    if (!response.ok) throw new Error("No se encontró el archivo plantilla.xlsx");
-                    const arrayBufferPlantilla = await response.arrayBuffer();
+                    statusDiv.innerText += "\n📝 Generando líneas TXT y lotes...";
 
-                    const wbSalida = new ExcelJS.Workbook();
-                    await wbSalida.xlsx.load(arrayBufferPlantilla);
-                    const wsSalida = wbSalida.worksheets[0];
+                    // 5. GENERAR LÍNEAS TXT (Lógica estricta de formato)
+                    let lineasTxt = [];
 
-                    // Borrar datos viejos (desde fila 4)
-                    // ExcelJS no tiene un "delete_rows" tan directo que limpie estilos a veces, 
-                    // pero podemos sobrescribir. Mejor estrategia: borrar contenido manualmente si es necesario
-                    // o simplemente empezar a escribir desde la 4.
+                    datosProcesados.forEach(fila => {
+                        try {
+                            // TIPO: int -> zfill(2)
+                            let tipoRaw = parseInt(fila.tipo_cp || 0).toString().padStart(2, '0');
+                            let tipo = (tipoRaw + " "); // Espacio extra según tu f-string "{tipo_val_raw} "
 
-                    // Escribir datos
-                    filasFinales.forEach((rowData, index) => {
-                        const currentRow = wsSalida.getRow(4 + index);
-                        // Iterar columnas (recordar mapeo de indices del array al Excel)
-                        // rowData index 1 (col A) -> cell 1
-                        for (let c = 1; c < rowData.length; c++) {
-                            if (rowData[c] !== undefined && rowData[c] !== null) {
-                                currentRow.getCell(c).value = rowData[c];
+                            // RUC: ljust(18)
+                            let ruc = (fila.prov_ruc || "").toString().padEnd(18, " ");
+
+                            // SERIE: upper, strip, ljust(20)
+                            let serie = (fila.serie || "").toString().trim().toUpperCase().padEnd(20, " ");
+
+                            // NUMERO: int -> ljust(18)
+                            let numero = parseInt(fila.numero || 0).toString().padEnd(18, " ");
+
+                            // FECHA: strip
+                            let fechaObj = fila.fecha;
+                            let fechaStr = "";
+                            if (fechaObj instanceof Date) {
+                                fechaStr = fechaObj.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                            } else {
+                                fechaStr = (fechaObj || "").toString().trim();
                             }
+
+                            // IMPORTE
+                            let valorNum = parseFloat(fila.total || 0);
+                            if (tipoRaw === "07") {
+                                valorNum = Math.abs(valorNum);
+                            }
+                            let valorRedondeado = Math.round(valorNum * 100) / 100; // Round 2 decimales
+                            let importeStr = valorRedondeado.toString();
+                            // Si es entero visualmente
+                            if (Number.isInteger(valorRedondeado)) {
+                                importeStr = parseInt(valorRedondeado).toString();
+                            }
+
+                            // Construir línea pipe-delimited
+                            let linea = `${ruc}|${tipo}|${serie}|${numero}|${fechaStr}|${importeStr}`;
+                            lineasTxt.push(linea);
+
+                        } catch (err) {
+                            console.warn("Error en fila", err);
                         }
-                        currentRow.commit();
                     });
 
-                    statusDiv.innerText = "Generando archivo final...";
+                    // 6. CREAR ZIP
+                    statusDiv.innerText += "\n📦 Comprimiendo archivos...";
+                    const zip = new JSZip();
 
-                    // 6. Descargar
-                    const bufferSalida = await wbSalida.xlsx.writeBuffer();
-                    const blob = new Blob([bufferSalida], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
-                    const url = window.URL.createObjectURL(blob);
+                    // Agregar Excel al ZIP
+                    zip.file("Resumen_Compras.xlsx", bufferResumen);
 
-                    const a = document.createElement("a");
-                    a.href = url;
-                    a.download = `Resultado_Final_Ventas_${new Date().getTime()}.xlsx`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
+                    // Agregar TXTs por lotes de 100
+                    const filasPorArchivo = 100;
+                    for (let i = 0; i < lineasTxt.length; i += filasPorArchivo) {
+                        const lote = lineasTxt.slice(i, i + filasPorArchivo);
+                        const contenidoTxt = lote.join("\n");
+                        const idxFile = Math.floor(i / filasPorArchivo) + 1;
+                        zip.file(`Validacion_Final_Parte_${idxFile}.txt`, contenidoTxt);
+                    }
 
-                    statusDiv.innerText = "¡Listo! Descarga iniciada.";
+                    // Generar Blob del ZIP
+                    const zipBlob = await zip.generateAsync({ type: "blob" });
+
+                    // 7. DESCARGAR
+                    saveAs(zipBlob, "resultado_procesamiento.zip");
+
+                    statusDiv.innerText += "\n✅ ¡Listo! Descarga iniciada.";
                     btn.disabled = false;
-
                 };
+
             } catch (error) {
                 console.error(error);
-                statusDiv.innerText = "Error: " + error.message;
-                statusDiv.style.color = "red";
+                statusDiv.innerText = "❌ Error: " + error.message;
                 btn.disabled = false;
             }
         }
