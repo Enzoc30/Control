@@ -4,292 +4,349 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoContaLabs - Procesador de Compras ZIP</title>
+    <title>AutoContaLabs - Procesador Compras</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/exceljs/4.3.0/exceljs.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
 
     <style>
+        :root {
+            --primary: #2563eb;
+            /* Azul vibrante */
+            --primary-hover: #1d4ed8;
+            --bg-color: #f3f4f6;
+            /* Gris muy suave de fondo */
+            --text-dark: #111827;
+            --text-gray: #6b7280;
+            --card-radius: 24px;
+            /* Bordes muy redondeados estilo Finova */
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            background-color: #f4f4f9;
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-color);
+            height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-            min-height: 100vh;
-            margin: 0;
+            color: var(--text-dark);
         }
 
-        .card {
+        /* Tarjeta Central */
+        .dashboard-card {
             background: white;
-            padding: 2rem;
-            border-radius: 12px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-            width: 450px;
+            width: 100%;
+            max-width: 480px;
+            padding: 40px;
+            border-radius: var(--card-radius);
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
             text-align: center;
+            animation: floatUp 0.6s ease-out;
+        }
+
+        /* Cabecera */
+        .icon-header {
+            background: #eff6ff;
+            color: var(--primary);
+            width: 64px;
+            height: 64px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px auto;
+            font-size: 32px;
         }
 
         h1 {
-            color: #333;
-            font-size: 1.5rem;
-            margin-bottom: 0.5rem;
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
         }
 
-        .subtitle {
-            font-size: 0.9rem;
-            color: #666;
-            margin-bottom: 1.5rem;
+        p.subtitle {
+            color: var(--text-gray);
+            font-size: 14px;
+            margin-bottom: 30px;
+            line-height: 1.5;
         }
 
-        .logo {
-            color: #16a34a;
-            font-weight: bold;
-            font-size: 1.2rem;
+        /* Zona de carga (Drag & Drop visual) */
+        .upload-zone {
+            border: 2px dashed #e5e7eb;
+            border-radius: 16px;
+            padding: 30px 20px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            position: relative;
+            background: #fafafa;
+        }
+
+        .upload-zone:hover {
+            border-color: var(--primary);
+            background: #eff6ff;
+        }
+
+        .upload-zone input {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            opacity: 0;
+            cursor: pointer;
+        }
+
+        .upload-content i {
+            font-size: 28px;
+            color: #9ca3af;
             margin-bottom: 10px;
             display: block;
         }
 
-        input[type="file"] {
-            margin-bottom: 1rem;
-            width: 100%;
+        .upload-content span {
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-gray);
         }
 
-        button {
-            background-color: #16a34a;
+        .file-selected {
+            color: var(--primary) !important;
+            font-weight: 600 !important;
+        }
+
+        /* Botón */
+        .btn-process {
+            background-color: var(--primary);
             color: white;
-            border: none;
-            padding: 12px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: bold;
             width: 100%;
-            transition: background 0.2s;
-            font-size: 1rem;
+            padding: 16px;
+            border: none;
+            border-radius: 16px;
+            font-size: 16px;
+            font-weight: 600;
+            margin-top: 24px;
+            cursor: pointer;
+            transition: transform 0.1s, background-color 0.2s;
+            box-shadow: 0 4px 6px -1px rgba(37, 99, 235, 0.2);
         }
 
-        button:hover {
-            background-color: #15803d;
+        .btn-process:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
         }
 
-        button:disabled {
-            background-color: #ccc;
+        .btn-process:active {
+            transform: translateY(1px);
+        }
+
+        .btn-process:disabled {
+            background-color: #cbd5e1;
             cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
         }
 
-        #status {
+        /* Estados */
+        .status-msg {
             margin-top: 20px;
-            font-size: 0.9rem;
-            color: #444;
-            white-space: pre-line;
-            text-align: left;
-            background: #f9fafb;
-            padding: 10px;
-            border-radius: 6px;
+            font-size: 13px;
+            padding: 12px;
+            border-radius: 12px;
             display: none;
+        }
+
+        .status-loading {
+            background: #eff6ff;
+            color: var(--primary);
+        }
+
+        .status-success {
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .status-error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        @keyframes floatUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
     </style>
 </head>
 
 <body>
 
-    <div class="card">
-        <span class="logo">AutoContaLabs 🛒</span>
-        <h1>Procesador de Compras</h1>
-        <p class="subtitle">Genera Resumen Excel + TXTs validados (ZIP)</p>
+    <div class="dashboard-card">
+        <div class="icon-header">
+            <i class="ph ph-file-zip"></i>
+        </div>
 
-        <input type="file" id="inputFile" accept=".xlsx, .xls" />
-        <button id="btnProcess" onclick="procesarCompras()">Generar ZIP</button>
-        <div id="status"></div>
+        <h1>Generar ZIP de Compras</h1>
+        <p class="subtitle">Sube tu Excel de compras para generar automáticamente el resumen y los TXT validados.</p>
+
+        <div class="upload-zone" id="dropZone">
+            <div class="upload-content">
+                <i class="ph ph-cloud-arrow-up" id="uploadIcon"></i>
+                <span id="uploadText">Haz clic para subir tu Excel</span>
+            </div>
+            <input type="file" id="inputFile" accept=".xlsx, .xls" onchange="actualizarNombreArchivo()">
+        </div>
+
+        <button class="btn-process" id="btnProcess" onclick="procesarCompras()">
+            Procesar Archivo
+        </button>
+
+        <div id="statusArea" class="status-msg"></div>
     </div>
 
     <script>
+        // Efecto visual al seleccionar archivo
+        function actualizarNombreArchivo() {
+            const input = document.getElementById('inputFile');
+            const text = document.getElementById('uploadText');
+            const icon = document.getElementById('uploadIcon');
+
+            if (input.files && input.files[0]) {
+                text.innerText = input.files[0].name;
+                text.classList.add('file-selected');
+                icon.className = "ph ph-file-xls"; // Cambia icono a Excel
+                icon.style.color = "#2563eb";
+            }
+        }
+
+        // --- LÓGICA DE PROCESAMIENTO (TU CÓDIGO) ---
         async function procesarCompras() {
             const fileInput = document.getElementById('inputFile');
-            const statusDiv = document.getElementById('status');
+            const statusDiv = document.getElementById('statusArea');
             const btn = document.getElementById('btnProcess');
 
             if (!fileInput.files[0]) {
-                alert("Por favor selecciona un archivo Excel.");
+                mostrarEstado("Por favor selecciona un archivo Excel primero.", "error");
                 return;
             }
 
             try {
+                // UI Loading
                 btn.disabled = true;
-                statusDiv.style.display = 'block';
-                statusDiv.innerText = "⏳ Iniciando lectura del archivo...";
+                btn.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> Procesando...';
+                mostrarEstado("Leyendo y analizando datos...", "loading");
 
-                // 1. LEER EL ARCHIVO
                 const reader = new FileReader();
                 reader.readAsArrayBuffer(fileInput.files[0]);
 
                 reader.onload = async function (e) {
-                    const buffer = e.target.result;
+                    // 1. Cargar Excel
                     const workbook = new ExcelJS.Workbook();
-                    await workbook.xlsx.load(buffer);
+                    await workbook.xlsx.load(e.target.result);
                     const worksheet = workbook.worksheets[0];
 
-                    statusDiv.innerText += "\n🔍 Filtrando datos y aplicando Regex...";
-
-                    // 2. FILTRAR Y LIMPIAR (Lógica Python traducida a JS)
                     let dfLimpio = [];
                     const regexFecha = /\d{2}\/\d{2}\/\d{4}/;
 
-                    worksheet.eachRow({ includeEmpty: false }, function (row, rowNumber) {
-                        // ExcelJS row.values[1] es null. La columna A es index 1, B es index 2.
-                        // En tu Python usabas row[1] (Columna B). En ExcelJS suele ser index 2.
-                        // Ajusta este índice si tu Excel varía. Asumiremos Columna B (index 2).
-                        const celdaFecha = row.getCell(2).value;
+                    // 2. Filtrar
+                    worksheet.eachRow({ includeEmpty: false }, (row) => {
+                        const val = row.getCell(2).value; // Columna B
+                        let strVal = "";
+                        if (val instanceof Date) strVal = val.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+                        else if (val) strVal = val.toString();
 
-                        // Convertir a string para evaluar regex
-                        let valorFechaStr = "";
-                        if (celdaFecha instanceof Date) {
-                            valorFechaStr = celdaFecha.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                        } else if (celdaFecha) {
-                            valorFechaStr = celdaFecha.toString();
-                        }
-
-                        if (regexFecha.test(valorFechaStr)) {
-                            // Guardamos la fila completa (solo valores)
-                            // row.values devuelve un array con un null al principio, lo quitamos con slice(1)
-                            dfLimpio.push(row.values);
-                        }
+                        if (regexFecha.test(strVal)) dfLimpio.push(row.values);
                     });
 
-                    // 3. MAPEO DE COLUMNAS (Basado en tu código Python)
-                    // Python indices (0-based) -> JS Array indices (1-based because row.values keeps index 0 as null/undefined usually)
-                    // Mapeo aproximado basado en tu lista "columnas_nombres"
-                    // [1] FECHA, [3] TIPO_CP, [4] SERIE, [6] NUMERO, [7] PROV_TIPO, [8] PROV_NUM, [9] PROV_NOM, [21] TOTAL
+                    // 3. Mapear Datos
+                    const datos = dfLimpio.map(r => ({
+                        fecha: r[2], tipo: r[4], serie: r[5], num: r[7],
+                        ptipo: r[8], pruc: r[9], pnom: r[10], total: r[22]
+                    }));
 
-                    const datosProcesados = dfLimpio.map(row => {
-                        return {
-                            fecha: row[2],       // Python 1 -> JS 2 (Col B)
-                            tipo_cp: row[4],     // Python 3 -> JS 4 (Col D)
-                            serie: row[5],       // Python 4 -> JS 5 (Col E)
-                            numero: row[7],      // Python 6 -> JS 7 (Col G)
-                            prov_tipo: row[8],   // Python 7 -> JS 8 (Col H)
-                            prov_ruc: row[9],    // Python 8 -> JS 9 (Col I)
-                            prov_nom: row[10],   // Python 9 -> JS 10 (Col J)
-                            total: row[22]       // Python 21 -> JS 22 (Col V)
-                        };
-                    });
-
-                    statusDiv.innerText += "\n📊 Generando Excel de Resumen...";
-
-                    // 4. GENERAR EXCEL RESUMEN
-                    const wbResumen = new ExcelJS.Workbook();
-                    const wsResumen = wbResumen.addWorksheet("Resumen");
-
-                    // Encabezados
-                    wsResumen.columns = [
-                        { header: 'CORRELATIVO', key: 'corr', width: 10 },
-                        { header: 'FECHA_EMISION', key: 'fecha', width: 15 },
-                        { header: 'TIPO', key: 'tipo', width: 10 },
-                        { header: 'SERIE', key: 'serie', width: 10 },
-                        { header: 'NUMERO', key: 'num', width: 15 },
-                        { header: 'TIPO DOC', key: 'tdoc', width: 10 },
-                        { header: 'RUC', key: 'ruc', width: 15 },
-                        { header: 'RAZON SOCIAL', key: 'rs', width: 30 },
-                        { header: 'IMPORTE TOTAL', key: 'imp', width: 15 }
+                    // 4. Crear Excel Resumen
+                    const wbRes = new ExcelJS.Workbook();
+                    const wsRes = wbRes.addWorksheet("Resumen");
+                    wsRes.columns = [
+                        { header: 'FECHA', key: 'f', width: 12 },
+                        { header: 'RUC', key: 'r', width: 15 },
+                        { header: 'RAZON SOCIAL', key: 'rs', width: 35 },
+                        { header: 'IMPORTE', key: 'i', width: 12 }
                     ];
+                    // Estilo simple header
+                    wsRes.getRow(1).font = { bold: true };
 
-                    datosProcesados.forEach((d, index) => {
-                        wsResumen.addRow({
-                            corr: index + 1,
-                            fecha: d.fecha,
-                            tipo: d.tipo_cp,
-                            serie: d.serie,
-                            num: d.numero,
-                            tdoc: d.prov_tipo,
-                            ruc: d.prov_ruc,
-                            rs: d.prov_nom,
-                            imp: d.total
-                        });
-                    });
+                    datos.forEach(d => wsRes.addRow({ f: d.fecha, r: d.pruc, rs: d.pnom, i: d.total }));
+                    const buffRes = await wbRes.xlsx.writeBuffer();
 
-                    const bufferResumen = await wbResumen.xlsx.writeBuffer();
-
-                    statusDiv.innerText += "\n📝 Generando líneas TXT y lotes...";
-
-                    // 5. GENERAR LÍNEAS TXT (Lógica estricta de formato)
-                    let lineasTxt = [];
-
-                    datosProcesados.forEach(fila => {
+                    // 5. Generar TXTs
+                    let txtLines = [];
+                    datos.forEach(d => {
                         try {
-                            // TIPO: int -> zfill(2)
-                            let tipoRaw = parseInt(fila.tipo_cp || 0).toString().padStart(2, '0');
-                            let tipo = (tipoRaw + " "); // Espacio extra según tu f-string "{tipo_val_raw} "
+                            let t = parseInt(d.tipo || 0).toString().padStart(2, '0') + " ";
+                            let r = (d.pruc || "").toString().padEnd(18, " ");
+                            let s = (d.serie || "").toString().trim().toUpperCase().padEnd(20, " ");
+                            let n = parseInt(d.num || 0).toString().padEnd(18, " ");
+                            let f = (d.fecha instanceof Date) ? d.fecha.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : (d.fecha || "").toString().trim();
 
-                            // RUC: ljust(18)
-                            let ruc = (fila.prov_ruc || "").toString().padEnd(18, " ");
+                            let v = parseFloat(d.total || 0);
+                            if (t.trim() === "07") v = Math.abs(v);
+                            let imp = (Math.round(v * 100) / 100).toString(); // simple round
+                            if (v % 1 === 0) imp = parseInt(v).toString(); // quitar decimales si es entero
 
-                            // SERIE: upper, strip, ljust(20)
-                            let serie = (fila.serie || "").toString().trim().toUpperCase().padEnd(20, " ");
-
-                            // NUMERO: int -> ljust(18)
-                            let numero = parseInt(fila.numero || 0).toString().padEnd(18, " ");
-
-                            // FECHA: strip
-                            let fechaObj = fila.fecha;
-                            let fechaStr = "";
-                            if (fechaObj instanceof Date) {
-                                fechaStr = fechaObj.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                            } else {
-                                fechaStr = (fechaObj || "").toString().trim();
-                            }
-
-                            // IMPORTE
-                            let valorNum = parseFloat(fila.total || 0);
-                            if (tipoRaw === "07") {
-                                valorNum = Math.abs(valorNum);
-                            }
-                            let valorRedondeado = Math.round(valorNum * 100) / 100; // Round 2 decimales
-                            let importeStr = valorRedondeado.toString();
-                            // Si es entero visualmente
-                            if (Number.isInteger(valorRedondeado)) {
-                                importeStr = parseInt(valorRedondeado).toString();
-                            }
-
-                            // Construir línea pipe-delimited
-                            let linea = `${ruc}|${tipo}|${serie}|${numero}|${fechaStr}|${importeStr}`;
-                            lineasTxt.push(linea);
-
-                        } catch (err) {
-                            console.warn("Error en fila", err);
-                        }
+                            txtLines.push(`${r}|${t}|${s}|${n}|${f}|${imp}`);
+                        } catch (e) { }
                     });
 
-                    // 6. CREAR ZIP
-                    statusDiv.innerText += "\n📦 Comprimiendo archivos...";
+                    // 6. Crear ZIP
                     const zip = new JSZip();
+                    zip.file("Resumen_Compras.xlsx", buffRes);
 
-                    // Agregar Excel al ZIP
-                    zip.file("Resumen_Compras.xlsx", bufferResumen);
-
-                    // Agregar TXTs por lotes de 100
-                    const filasPorArchivo = 100;
-                    for (let i = 0; i < lineasTxt.length; i += filasPorArchivo) {
-                        const lote = lineasTxt.slice(i, i + filasPorArchivo);
-                        const contenidoTxt = lote.join("\n");
-                        const idxFile = Math.floor(i / filasPorArchivo) + 1;
-                        zip.file(`Validacion_Final_Parte_${idxFile}.txt`, contenidoTxt);
+                    // Lotes de 100
+                    for (let i = 0; i < txtLines.length; i += 100) {
+                        zip.file(`Lote_Validacion_${Math.floor(i / 100) + 1}.txt`, txtLines.slice(i, i + 100).join("\n"));
                     }
 
-                    // Generar Blob del ZIP
                     const zipBlob = await zip.generateAsync({ type: "blob" });
 
-                    // 7. DESCARGAR
-                    saveAs(zipBlob, "resultado_procesamiento.zip");
+                    // 7. Descargar
+                    saveAs(zipBlob, `AutoConta_Pack_${Date.now()}.zip`);
 
-                    statusDiv.innerText += "\n✅ ¡Listo! Descarga iniciada.";
+                    mostrarEstado("¡Éxito! Tu archivo ZIP se ha descargado.", "success");
                     btn.disabled = false;
+                    btn.innerText = "Procesar Archivo";
                 };
 
-            } catch (error) {
-                console.error(error);
-                statusDiv.innerText = "❌ Error: " + error.message;
+            } catch (err) {
+                console.error(err);
+                mostrarEstado("Error: " + err.message, "error");
                 btn.disabled = false;
+                btn.innerText = "Procesar Archivo";
             }
+        }
+
+        function mostrarEstado(msg, tipo) {
+            const div = document.getElementById('statusArea');
+            div.style.display = 'block';
+            div.className = 'status-msg status-' + tipo;
+            div.innerText = msg;
         }
     </script>
 </body>
