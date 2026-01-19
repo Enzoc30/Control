@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AutoContaLabs - Procesador Compras</title>
+    <title>AutoContaLabs - Procesador Final</title>
 
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/@phosphor-icons/web"></script>
@@ -42,7 +42,7 @@
         .dashboard-card {
             background: white;
             width: 100%;
-            max-width: 480px;
+            max-width: 520px;
             padding: 40px;
             border-radius: var(--card-radius);
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 8px 10px -6px rgba(0, 0, 0, 0.01);
@@ -195,25 +195,29 @@
             <i class="ph ph-file-zip"></i>
         </div>
 
-        <h1>Generar ZIP de Compras</h1>
-        <p class="subtitle">Genera Resumen con cabecera (A1-B5) + TXTs Validados.</p>
+        <h1>AutoContaLabs</h1>
+        <p class="subtitle">Mapeo de Compras + Plantilla + TXTs</p>
 
         <div class="upload-zone" id="dropZone">
             <div class="upload-content">
                 <i class="ph ph-cloud-arrow-up" id="uploadIcon"></i>
-                <span id="uploadText">Haz clic para subir tu Excel</span>
+                <span id="uploadText">Haz clic para subir tu Excel (Compras)</span>
             </div>
             <input type="file" id="inputFile" accept=".xlsx, .xls" onchange="actualizarNombreArchivo()">
         </div>
 
-        <button class="btn-process" id="btnProcess" onclick="procesarCompras()">
-            Procesar Archivo
+        <button class="btn-process" id="btnProcess" onclick="procesarCompleto()">
+            Procesar y Descargar ZIP
         </button>
 
         <div id="statusArea" class="status-msg"></div>
     </div>
 
     <script>
+        // CONFIGURACIÓN
+        // Asegúrate de que este archivo exista en tu repositorio con este nombre exacto
+        const NOMBRE_PLANTILLA = './Plantilla_Control_Calidad.xlsx';
+
         function actualizarNombreArchivo() {
             const input = document.getElementById('inputFile');
             const text = document.getElementById('uploadText');
@@ -227,141 +231,229 @@
             }
         }
 
-        async function procesarCompras() {
+        function mostrarEstado(msg, tipo) {
+            const div = document.getElementById('statusArea');
+            div.style.display = 'block';
+            div.className = 'status-msg status-' + tipo;
+            div.innerHTML = msg;
+        }
+
+        // Función auxiliar para parsear fechas
+        function obtenerFechaStr(valorCelda) {
+            if (valorCelda instanceof Date) {
+                // Ajuste de zona horaria simple para fechas Excel
+                const d = new Date(valorCelda.getTime() + Math.abs(valorCelda.getTimezoneOffset() * 60000));
+                return d.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            }
+            return valorCelda ? valorCelda.toString().trim() : "";
+        }
+
+        async function procesarCompleto() {
             const fileInput = document.getElementById('inputFile');
-            const statusDiv = document.getElementById('statusArea');
             const btn = document.getElementById('btnProcess');
 
             if (!fileInput.files[0]) {
-                mostrarEstado("Por favor selecciona un archivo Excel primero.", "error");
+                mostrarEstado("Por favor selecciona un archivo primero.", "error");
                 return;
             }
 
             try {
                 btn.disabled = true;
                 btn.innerHTML = '<i class="ph ph-spinner-gap ph-spin"></i> Procesando...';
-                mostrarEstado("Leyendo y analizando datos...", "loading");
+                mostrarEstado("1. Leyendo archivos...", "loading");
 
+                // 1. LEER ARCHIVO DE ENTRADA
                 const reader = new FileReader();
                 reader.readAsArrayBuffer(fileInput.files[0]);
 
                 reader.onload = async function (e) {
-                    const workbook = new ExcelJS.Workbook();
-                    await workbook.xlsx.load(e.target.result);
-                    const worksheet = workbook.worksheets[0];
+                    try {
+                        const bufferEntrada = e.target.result;
+                        const wbEntrada = new ExcelJS.Workbook();
+                        await wbEntrada.xlsx.load(bufferEntrada);
+                        const wsEntrada = wbEntrada.worksheets[0]; // Hoja 1
 
-                    // --- 1. CAPTURAR CABECERA (A1-A5 y B1-B5) ---
-                    let infoCabecera = [];
-                    for (let i = 1; i <= 5; i++) {
-                        // Capturamos el valor exacto de las celdas
-                        const valA = worksheet.getCell(`A${i}`).value || "";
-                        const valB = worksheet.getCell(`B${i}`).value || "";
-                        infoCabecera.push([valA, valB]);
+                        // 2. DESCARGAR PLANTILLA
+                        mostrarEstado("2. Cargando plantilla...", "loading");
+                        const respPlantilla = await fetch(NOMBRE_PLANTILLA);
+                        if (!respPlantilla.ok) throw new Error("No se encontró 'Plantilla_Control_Calidad.xlsx' en el servidor.");
+                        const bufferPlantilla = await respPlantilla.arrayBuffer();
+
+                        const wbSalida = new ExcelJS.Workbook();
+                        await wbSalida.xlsx.load(bufferPlantilla);
+                        const wsSalida = wbSalida.worksheets[0]; // Hoja 1 de plantilla
+
+                        // 3. COPIAR CABECERA (A1:B5)
+                        // Filas 1 a 5, Columnas 1 (A) y 2 (B)
+                        for (let r = 1; r <= 5; r++) {
+                            const valA = wsEntrada.getCell(r, 1).value;
+                            const valB = wsEntrada.getCell(r, 2).value;
+                            wsSalida.getCell(r, 1).value = valA;
+                            wsSalida.getCell(r, 2).value = valB;
+                        }
+
+                        // 4. MAPEO DE DATOS Y FILTRADO
+                        mostrarEstado("3. Procesando y mapeando datos...", "loading");
+                        const regexFecha = /\d{2}\/\d{2}\/\d{4}/;
+                        let datosMapeados = [];
+
+                        // Recorrer filas entrada. ExcelJS empieza en 1.
+                        // Asumimos que los datos pueden empezar en cualquier fila, chequeamos col B (2)
+                        wsEntrada.eachRow({ includeEmpty: false }, function (row, rowNumber) {
+                            const valFecha = row.getCell(2).value; // Col B
+                            const strFecha = obtenerFechaStr(valFecha);
+
+                            // Filtro Regex Fecha
+                            if (regexFecha.test(strFecha)) {
+                                // MAPEO SOLICITADO
+                                // Python es base 0, ExcelJS base 1.
+                                // A(0)->1, B(1)->2, D(3)->4, E(4)->5, G(6)->7, H(7)->8, I(8)->9, J(9)->10
+                                // K(10)->11, L(11)->12, Q(16)->17, V(21)->22, AA(26)->27, AB(27)->28, AC(28)->29, AD(29)->30
+
+                                const objFila = {
+                                    colA: row.getCell(1).value,  // Destino A
+                                    colB: row.getCell(2).value,  // Destino B
+                                    colC: row.getCell(4).value,  // Destino C (Origen D)
+                                    colD: row.getCell(5).value,  // Destino D (Origen E)
+                                    colE: row.getCell(7).value,  // Destino E (Origen G)
+                                    colF: row.getCell(8).value,  // Destino F (Origen H)
+                                    colG: row.getCell(9).value,  // Destino G (Origen I)
+                                    colH: row.getCell(10).value, // Destino H (Origen J)
+                                    colI: row.getCell(11).value, // Destino I (Origen K)
+                                    colJ: row.getCell(12).value, // Destino J (Origen L)
+                                    colK: row.getCell(17).value, // Destino K (Origen Q)
+                                    colL: row.getCell(22).value, // Destino L (Origen V)
+                                    colM: row.getCell(27).value, // Destino M (Origen AA)
+                                    colN: row.getCell(28).value, // Destino N (Origen AB)
+                                    colO: row.getCell(29).value, // Destino O (Origen AC)
+                                    colP: row.getCell(30).value  // Destino P (Origen AD)
+                                };
+                                datosMapeados.push(objFila);
+                            }
+                        });
+
+                        // 5. ESCRIBIR EN PLANTILLA (Desde fila 12)
+                        let filaInicio = 12;
+                        datosMapeados.forEach((d, index) => {
+                            const r = filaInicio + index;
+                            const filaExcel = wsSalida.getRow(r);
+
+                            filaExcel.getCell(1).value = d.colA;
+                            filaExcel.getCell(2).value = d.colB;
+                            filaExcel.getCell(3).value = d.colC;
+                            filaExcel.getCell(4).value = d.colD;
+                            filaExcel.getCell(5).value = d.colE;
+                            filaExcel.getCell(6).value = d.colF;
+                            filaExcel.getCell(7).value = d.colG;
+                            filaExcel.getCell(8).value = d.colH;
+                            filaExcel.getCell(9).value = d.colI;
+                            filaExcel.getCell(10).value = d.colJ;
+                            filaExcel.getCell(11).value = d.colK;
+                            filaExcel.getCell(12).value = d.colL;
+                            filaExcel.getCell(13).value = d.colM;
+                            filaExcel.getCell(14).value = d.colN;
+                            filaExcel.getCell(15).value = d.colO;
+                            filaExcel.getCell(16).value = d.colP;
+
+                            filaExcel.commit();
+                        });
+
+                        // 6. GENERAR TXTs
+                        mostrarEstado("4. Generando validaciones TXT...", "loading");
+                        let txtLines = [];
+
+                        datosMapeados.forEach(d => {
+                            try {
+                                // Mapeo para TXT según tu lógica python
+                                // TIPO -> colC
+                                // RUC -> colG
+                                // SERIE -> colD
+                                // NUMERO -> colE
+                                // FECHA -> colB
+                                // IMPORTE -> colL (Origen V)
+
+                                // Parse TIPO
+                                let tipoVal = parseInt(d.colC || 0);
+                                let tipoStr = isNaN(tipoVal) ? "00" : tipoVal.toString().padStart(2, '0');
+                                let tipoTxt = tipoStr + " ";
+
+                                // Parse RUC
+                                let rucVal = parseInt(d.colG || 0);
+                                let rucTxt = (isNaN(rucVal) ? "" : rucVal.toString()).padEnd(18, " ");
+
+                                // Parse SERIE
+                                let serieRaw = d.colD ? d.colD.toString() : "";
+                                let serieTxt = serieRaw.trim().toUpperCase().padEnd(20, " ");
+
+                                // Parse NUMERO
+                                let numVal = parseFloat(d.colE || 0); // a veces viene con decimales .0
+                                let numTxt = (isNaN(numVal) ? "0" : parseInt(numVal).toString()).padEnd(18, " ");
+
+                                // Parse FECHA
+                                let fechaTxt = obtenerFechaStr(d.colB).trim();
+
+                                // Parse IMPORTE
+                                let impVal = parseFloat(d.colL || 0);
+                                if (isNaN(impVal)) impVal = 0;
+
+                                // Lógica Nota Crédito '07' -> Valor Absoluto
+                                if (tipoStr === "07") {
+                                    impVal = Math.abs(impVal);
+                                }
+
+                                // Redondeo
+                                let impRedondeado = Math.round(impVal * 100) / 100;
+                                let impTxt = impRedondeado.toString();
+                                if (Number.isInteger(impRedondeado)) {
+                                    impTxt = impRedondeado.toString(); // Sin decimales si es entero
+                                }
+
+                                const linea = `${rucTxt}|${tipoTxt}|${serieTxt}|${numTxt}|${fechaTxt}|${impTxt}`;
+                                txtLines.push(linea);
+
+                            } catch (err) {
+                                console.warn("Error generando linea TXT:", err);
+                            }
+                        });
+
+                        // 7. EMPAQUETAR EN ZIP
+                        mostrarEstado("5. Creando archivo ZIP...", "loading");
+                        const zip = new JSZip();
+
+                        // Agregar Excel Modificado
+                        const bufferFinalExcel = await wbSalida.xlsx.writeBuffer();
+                        zip.file("Resumen_Compras_Final.xlsx", bufferFinalExcel);
+
+                        // Agregar TXTs por lotes
+                        const filasPorArchivo = 100;
+                        for (let i = 0; i < txtLines.length; i += filasPorArchivo) {
+                            const lote = txtLines.slice(i, i + filasPorArchivo).join("\n");
+                            const numLote = Math.floor(i / filasPorArchivo) + 1;
+                            zip.file(`Validacion_Final_Parte_${numLote}.txt`, lote);
+                        }
+
+                        // Descargar
+                        const zipBlob = await zip.generateAsync({ type: "blob" });
+                        saveAs(zipBlob, `AutoConta_Resultado_${Date.now()}.zip`);
+
+                        mostrarEstado("¡Proceso Finalizado! Descarga iniciada.", "success");
+                        btn.disabled = false;
+                        btn.innerText = "Procesar y Descargar ZIP";
+
+                    } catch (error) {
+                        console.error(error);
+                        mostrarEstado("Error: " + error.message, "error");
+                        btn.disabled = false;
+                        btn.innerText = "Procesar y Descargar ZIP";
                     }
-
-                    // --- 2. FILTRAR DATOS ---
-                    let dfLimpio = [];
-                    const regexFecha = /\d{2}\/\d{2}\/\d{4}/;
-
-                    worksheet.eachRow({ includeEmpty: false }, (row) => {
-                        const val = row.getCell(2).value; // Columna B
-                        let strVal = "";
-                        if (val instanceof Date) strVal = val.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' });
-                        else if (val) strVal = val.toString();
-
-                        if (regexFecha.test(strVal)) dfLimpio.push(row.values);
-                    });
-
-                    // --- 3. MAPEAR DATOS ---
-                    const datos = dfLimpio.map(r => ({
-                        fecha: r[2], tipo: r[4], serie: r[5], num: r[7],
-                        ptipo: r[8], pruc: r[9], pnom: r[10], total: r[22]
-                    }));
-
-                    // --- 4. CREAR EXCEL RESUMEN ---
-                    const wbRes = new ExcelJS.Workbook();
-                    const wsRes = wbRes.addWorksheet("Resumen");
-
-                    // A) Escribir las 5 filas de info primero
-                    infoCabecera.forEach(filaInfo => {
-                        wsRes.addRow(filaInfo);
-                    });
-
-                    // B) Espacio opcional (fila 6 vacía) o directo headers
-                    // Vamos a poner los headers en la fila 6 para que quede pegado, o fila 7 si quieres espacio.
-                    // Lo pondré en la siguiente fila disponible (Fila 6)
-
-                    const headerRow = wsRes.addRow(['FECHA', 'RUC', 'RAZON SOCIAL', 'IMPORTE', 'OBSERVACIONES']);
-                    headerRow.font = { bold: true }; // Negrita para los encabezados
-
-                    // Configurar anchos de columna manualmente
-                    wsRes.getColumn(1).width = 12; // Fecha
-                    wsRes.getColumn(2).width = 15; // Ruc
-                    wsRes.getColumn(3).width = 35; // Razon Social
-                    wsRes.getColumn(4).width = 12; // Importe
-                    wsRes.getColumn(5).width = 25; // Observaciones (Nueva)
-
-                    // C) Escribir los datos
-                    datos.forEach(d => {
-                        wsRes.addRow([
-                            d.fecha,
-                            d.pruc,
-                            d.pnom,
-                            d.total,
-                            "" // Columna Observaciones vacía
-                        ]);
-                    });
-
-                    const buffRes = await wbRes.xlsx.writeBuffer();
-
-                    // --- 5. GENERAR TXTs (Validación original) ---
-                    let txtLines = [];
-                    datos.forEach(d => {
-                        try {
-                            let t = parseInt(d.tipo || 0).toString().padStart(2, '0') + " ";
-                            let r = (d.pruc || "").toString().padEnd(18, " ");
-                            let s = (d.serie || "").toString().trim().toUpperCase().padEnd(20, " ");
-                            let n = parseInt(d.num || 0).toString().padEnd(18, " ");
-                            let f = (d.fecha instanceof Date) ? d.fecha.toLocaleDateString('es-PE', { day: '2-digit', month: '2-digit', year: 'numeric' }) : (d.fecha || "").toString().trim();
-
-                            let v = parseFloat(d.total || 0);
-                            if (t.trim() === "07") v = Math.abs(v);
-                            let imp = (Math.round(v * 100) / 100).toString();
-                            if (v % 1 === 0) imp = parseInt(v).toString();
-
-                            txtLines.push(`${r}|${t}|${s}|${n}|${f}|${imp}`);
-                        } catch (e) { }
-                    });
-
-                    // --- 6. ZIP ---
-                    const zip = new JSZip();
-                    zip.file("Resumen_Compras.xlsx", buffRes);
-
-                    for (let i = 0; i < txtLines.length; i += 100) {
-                        zip.file(`Lote_Validacion_${Math.floor(i / 100) + 1}.txt`, txtLines.slice(i, i + 100).join("\n"));
-                    }
-
-                    const zipBlob = await zip.generateAsync({ type: "blob" });
-                    saveAs(zipBlob, `AutoConta_Pack_${Date.now()}.zip`);
-
-                    mostrarEstado("¡Éxito! ZIP descargado correctamente.", "success");
-                    btn.disabled = false;
-                    btn.innerText = "Procesar Archivo";
                 };
 
             } catch (err) {
                 console.error(err);
-                mostrarEstado("Error: " + err.message, "error");
+                mostrarEstado("Error grave: " + err.message, "error");
                 btn.disabled = false;
-                btn.innerText = "Procesar Archivo";
+                btn.innerText = "Procesar y Descargar ZIP";
             }
-        }
-
-        function mostrarEstado(msg, tipo) {
-            const div = document.getElementById('statusArea');
-            div.style.display = 'block';
-            div.className = 'status-msg status-' + tipo;
-            div.innerText = msg;
         }
     </script>
 </body>
